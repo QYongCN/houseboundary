@@ -12,6 +12,7 @@
         //v2.0版本的引用方式：src="http://api.map.baidu.com/api?v=2.0&ak=您的密钥"
     </script>
     <script src="https://cdn.staticfile.org/jquery/1.10.2/jquery.min.js"></script>
+    <script src="https://cdn.bootcss.com/sql.js/0.5.0/js/sql-optimized.js"></script>
 </head>
 <body>
     <div id="container"></div>
@@ -23,6 +24,18 @@
         map.centerAndZoom(point, 15);
         // 初始化地图，设置中心点坐标和地图级别
         map.enableScrollWheelZoom();
+
+        var boundArray = [];
+        var poiinfo = [];
+        var Community = [];
+        var timer;
+        // var db = openDatabase("myDB", "1.0", "test db", 100*1024*100);
+        // db.transaction(function (tx) {
+        //     tx.executeSql('CREATE TABLE IF NOT EXISTS WIN2 (uid unique, title, address, city, province)');
+        // });
+
+        var db = new SQL.Database();
+        db.run("CREATE TABLE IF NOT EXISTS WIN3 (uid unique, title, address, city, province)");
 
         var  dw = function () {
             // var circle = new BMap.Circle(point,20000,{fillColor:"blue", strokeWeight: 1 ,fillOpacity: 0.3, strokeOpacity: 0.3});
@@ -52,9 +65,19 @@
                     //     console.log(element);
                     // },
                     onSearchComplete: function (results) {
-                        console.log(results);
+					
+                        // console.log(results);
                         for (var i = 0; i < results.Ir.length; i++){
+                            var tem = {};
                             ResultArray.push(results.Ir[i].uid);
+                            tem['UID'] = results.Ir[i].uid;
+                            tem['title'] = results.Ir[i].title;
+                            tem["point"] = results.Ir[i].point;
+                            tem['address'] = results.Ir[i].address;
+                            tem['tag'] = results.Ir[i].tags;
+                            tem['city'] = results.Ir[i].city;
+                            tem['province'] = results.Ir[i].province;
+                            poiinfo.push(tem);
                             // var marker = new BMap.Marker(results.Ir[i].point);
                             // map.addOverlay(marker);
                         }
@@ -63,7 +86,6 @@
 
                         if (currPage < totalPages-1){
                             local.setMarkersSetCallback(function (pois) {
-                                console.log(pois);
                                 for (var i = 0; i < pois.length; i++){
                                     map.removeOverlay(pois[i].marker);
                                 }
@@ -76,44 +98,105 @@
                                 }
                             });
                             for (var j = 0; j < ResultArray.length; j++){
-                                queryuid(ResultArray[j]);
+                                queryuid(ResultArray[j], function() {
+                                    // 只在最后一次 jsonp 网络请求后执行
+                                    if(timer) 
+                                        clearTimeout(timer);
+                                    timer = setTimeout(deal, 1000);
+                                });
                             };
                         }
+												
                     }
                 }
             );
-            // console.log(ResultArray);
-
             // local.searchNearby('住宅区',point,20000);
             local.searchInBounds("地产小区", bs);
-
+          
         };
+		
+		function deal() {
+			for (var i = 0; i < boundArray.length; i++){
+			    for (var j = 0; j < poiinfo.length; j++){
+			        if (boundArray[i].UID == poiinfo[j].UID){
+			            var tem = {};
+			            tem['UID'] = boundArray[i].UID;
+			            tem['title'] = poiinfo[j].title;
+                        tem["point"] = poiinfo[j].point;
+                        tem["boundary"] = boundArray[i].boundary;
+                        tem['address'] = poiinfo[j].address;
+                        tem['tag'] = poiinfo[j].tag;
+                        tem['city'] = poiinfo[j].city;
+                        tem['province'] = poiinfo[j].province;
+                        Community.push(tem);
+                        break;
+                    }
+                }
+            }
+			console.log(Community);
 
-        function queryuid(uid){
+            for (var i = 0; i < Community.length; i++){
+                db.run("INSERT INTO WIN3 (uid, title, address, city, province) VALUES (?, ?, ?, ?, ?)", [Community[i]['UID'], Community[i]['title'], Community[i]['address'], Community[i]['city'], Community[i]['province']]);
+            }
+            // Prepare a statement
+            var stmt = db.prepare("SELECT * FROM WIN3");
+            stmt.getAsObject({$start:1, $end:1}); // {col1:1, col2:111}
+
+            // Bind new values
+            stmt.bind({$start:1, $end:2});
+            while(stmt.step()) { //
+                var row = stmt.getAsObject();
+            }
+
+
+
+            // db.transaction(function (tx) {
+            //     for (var i = 0; i < Community.length; i++){
+            //         tx.executeSql("INSERT INTO WIN2 (uid, title, address, city, province) VALUES (?, ?, ?, ?, ?)", [Community[i]['UID'], Community[i]['title'], Community[i]['address'], Community[i]['city'], Community[i]['province']]);
+            //     }
+            // });
+
+            // db.transaction(function (tx) {
+            //     tx.executeSql('SELECT * FROM WIN2', [], function (tx, results) {
+            //         var len = results.rows.length;
+            //         console.log(results)
+            //         for (var i = 0; i < len; i++){
+            //             console.log(results.rows.item(i));
+            //         }
+            //     }, null);
+            // });
+
+		}
+
+        function queryuid(uid, cb){
             $.ajax({
                 async: false,
                 url: "http://map.baidu.com/?pcevaname=pc4.1&qt=ext&ext_ver=new&l=12&uid="+uid,
                 dataType: 'jsonp',
                 jsonp: 'callback',
+                type: 'post',
                 success: function (result) {
                     // console.log(result);
                     var content = result.content;
                     if (null != content.geo && content.geo != undefined){
+                        var temp = {};
                         var geo = content.geo;
                         var points = coordinateToPoints(geo);
                         if (points && points.indexOf(";") >= 0){
                             points = points.split(";");
                         };
-                        // console.log(points);
                         var arr = [];
                         for(var i = 0; i < points.length-1; i++){
                             var tem = points[i].split(",");
                             arr.push(new BMap.Point(parseFloat(tem[0]), parseFloat(tem[1])));
                         };
-                        // console.log(arr);
+                        temp["UID"] = content.uid;
+                        temp["boundary"] = arr;
+                        boundArray.push(temp);
                         var polygon = new BMap.Polygon(arr, {strokeColor:"red", strokeWeight:2, strokeOpacity:0.5});
                         map.addOverlay(polygon);
                     }
+                    cb();
                 }
             })
         };
